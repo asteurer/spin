@@ -1,462 +1,86 @@
-name: Release
+name: Build and Release Custom Spin
+
 on:
   push:
-    branches:
-      - main
-      - "v[0-9]+.[0-9]+"
     tags:
-      - "v*"
-
-# Serialize workflow runs
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release (e.g., v0.1.0-otel)'
+        required: true
+        type: string
 
 env:
-  RUST_VERSION: '1.90'
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-sign:
-    name: build and sign release assets
-    runs-on: ${{ matrix.config.os }}
+  build-and-release:
+    runs-on: ubuntu-latest
     permissions:
-      # cosign uses the GitHub OIDC token
-      id-token: write
-      # needed to upload artifacts to a GH release
       contents: write
-    strategy:
-      matrix:
-        config:
-          - {
-              os: "ubuntu-22.04",
-              arch: "amd64",
-              extension: "",
-              # Ubuntu 22.04 no longer ships libssl1.1, so we statically
-              # link it here to preserve release binary compatibility.
-              extraArgs: "--features openssl/vendored",
-              target: "",
-              targetDir: "target/release",
-              generateManifestSchema: true,
-            }
-          - {
-              os: "ubuntu-22.04",
-              arch: "aarch64",
-              extension: "",
-              extraArgs: "--features openssl/vendored --target aarch64-unknown-linux-gnu",
-              target: "aarch64-unknown-linux-gnu",
-              targetDir: "target/aarch64-unknown-linux-gnu/release",
-            }
-          - {
-              os: "macos-15-intel",
-              arch: "amd64",
-              extension: "",
-              extraArgs: "",
-              target: "",
-              targetDir: "target/release",
-            }
-          - {
-              os: "macos-14",
-              arch: "aarch64",
-              extension: "",
-              extraArgs: "",
-              target: "",
-              targetDir: "target/release/",
-            }
-          - {
-              os: "windows-latest",
-              arch: "amd64",
-              extension: ".exe",
-              extraArgs: "",
-              target: "",
-              targetDir: "target/release",
-            }
+
     steps:
-      - uses: actions/checkout@v3
-
-      - name: set the release version (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
-
-      - name: set the release version (main)
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
-
-      - name: lowercase the runner OS name
-        shell: bash
-        run: |
-          OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
-          echo "RUNNER_OS=$OS" >> $GITHUB_ENV
-
-      - name: Install Cosign for signing Spin binary
-        uses: sigstore/cosign-installer@v3.4.0
-        with:
-          cosign-release: v2.2.3
-
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install ${{ env.RUST_VERSION }} --no-self-update
-          rustup default ${{ env.RUST_VERSION }}
-
-      - name: Install target
-        if: matrix.config.target != ''
-        shell: bash
-        run: rustup target add --toolchain ${{ env.RUST_VERSION }} ${{ matrix.config.target }}
-
-      - name: "Install Wasm Rust target"
-        run: rustup target add wasm32-wasip1 wasm32-wasip2 wasm32-unknown-unknown --toolchain ${{ env.RUST_VERSION }}
-
-      - name: setup for cross-compiled linux aarch64 build
-        if: matrix.config.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt update
-          sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          echo '[target.aarch64-unknown-linux-gnu]' >> ${HOME}/.cargo/config.toml
-          echo 'linker = "aarch64-linux-gnu-gcc"' >> ${HOME}/.cargo/config.toml
-          echo 'rustflags = ["-Ctarget-feature=+fp16"]' >> ${HOME}/.cargo/config.toml
-
-      - name: setup dependencies
-        uses: ./.github/actions/spin-ci-dependencies
-        with:
-          openssl-windows: "${{ matrix.os == 'windows-latest' }}"
-
-      - name: build release
-        shell: bash
-        run: cargo build --release ${{ matrix.config.extraArgs }}
-
-      - name: Sign the binary with GitHub OIDC token
-        shell: bash
-        run: |
-          cosign sign-blob \
-            --yes \
-            --output-certificate crt.pem \
-            --output-signature spin.sig \
-            ${{ matrix.config.targetDir }}/spin${{ matrix.config.extension }}
-
-      - name: Generate manifest schema
-        if: matrix.config.generateManifestSchema
-        run: ${{ matrix.config.targetDir }}/spin${{ matrix.config.extension }} maintenance generate-manifest-schema -o manifest.schema.json
-
-      - name: package release assets
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          mkdir _dist
-          cp crt.pem spin.sig README.md LICENSE ${{ matrix.config.targetDir }}/spin${{ matrix.config.extension }} _dist/
-          cd _dist
-          tar czf \
-            spin-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz \
-            crt.pem spin.sig README.md LICENSE spin${{ matrix.config.extension }}
-
-      - name: package release assets
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          mkdir _dist
-          cp crt.pem spin.sig README.md LICENSE ${{ matrix.config.targetDir }}/spin${{ matrix.config.extension }} _dist/
-          cd _dist
-          7z a -tzip \
-            spin-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.zip \
-            crt.pem spin.sig README.md LICENSE spin${{ matrix.config.extension }}
-
-      - name: upload binary as GitHub artifact
-        if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: spin-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}
-          path: _dist/spin-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
-
-      - name: upload binary as GitHub artifact
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: spin-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}
-          path: _dist/spin-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.zip
-
-      - name: Upload schema as GitHub artifact
-        if: matrix.config.generateManifestSchema
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest.schema.json
-          path: manifest.schema.json
-
-  checksums:
-    name: generate release checksums
-    runs-on: ubuntu-latest
-    needs: [build-and-sign, build-spin-static]
-    steps:
-      - name: set the release version (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
-
-      - name: set the release version (main)
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
-
-      - name: download release assets
-        uses: actions/download-artifact@v4
-        with:
-          pattern: spin-*
-          merge-multiple: true
-
-      - name: generate checksums
-        run: sha256sum * > checksums-${{ env.RELEASE_VERSION }}.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: spin-checksums
-          path: checksums-${{ env.RELEASE_VERSION }}.txt
-
-  create-gh-release:
-    name: create GitHub release
-    runs-on: ubuntu-latest
-    needs: checksums
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: download binaries for release assets
-        uses: actions/download-artifact@v4
-        with:
-          pattern: spin-*
-          path: _dist
-          merge-multiple: true
-
-      - name: download schema for release assets
-        uses: actions/download-artifact@v4
-        with:
-          pattern: manifest.schema.json
-          path: _dist
-          merge-multiple: true
-
-      - name: check if pre-release
-        shell: bash
-        run: |
-          if [[ ! "${{ github.ref_name }}" =~ ^v[0-9]+.[0-9]+.[0-9]+$ ]]
-          then
-            echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
-          fi
-
-      - name: create GitHub release (canary)
-        if: github.ref == 'refs/heads/main'
-        run: |
-          gh release delete canary --cleanup-tag
-          gh release create canary _dist/* \
-            --title canary \
-            --prerelease \
-            --notes-file - <<- EOF
-            This is a "canary" release of the most recent commits on our main branch. Canary is **not stable**.
-            It is only intended for developers wishing to try out the latest features in Spin, some of which may not be fully implemented.
-          EOF
-
-      - name: create GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release create ${{ github.ref_name }} _dist/* \
-            --title ${{ github.ref_name }} \
-            --generate-notes ${{ env.PRERELEASE }}
-
-  push-templates-tag:
-    runs-on: ubuntu-latest
-    needs: build-and-sign
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set the tag to spin/templates/v*
-        shell: bash
-        run: |
-          spin_tag=$(echo "${{ github.ref }}" | grep -Eo "v[0-9.]+")
-          IFS=. read -r major minor patch <<< "${spin_tag}"
-          echo "TEMPLATE_TAG=spin/templates/$major.$minor" >> $GITHUB_ENV
-
-      - name: Tag spin/templates/v* and push it
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git tag ${{ env.TEMPLATE_TAG }} -f
-          git push origin ${{ env.TEMPLATE_TAG }} -f
-
-  ## statically linked spin binaries
-  build-spin-static:
-    name: Build Spin static
-    runs-on: ubuntu-22.04
-    permissions:
-      # cosign uses the GitHub OIDC token
-      id-token: write
-      # needed to upload artifacts to a GH release
-      contents: write
-    strategy:
-      matrix:
-        config:
-          - {
-              arch: "aarch64",
-              target: "aarch64-unknown-linux-musl"
-            }
-          - {
-              arch: "amd64",
-              target: "x86_64-unknown-linux-musl"
-            }
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: set the release version (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
-
-      - name: set the release version (main)
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
-
-      - name: lowercase the runner OS name
-        shell: bash
-        run: |
-          OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
-          echo "RUNNER_OS=$OS" >> $GITHUB_ENV
-      - name: Check if pre-release
-        id: release-version
-        shell: bash
-        run: |
-          [[ "${{ env.RELEASE_VERSION }}" =~ ^v[0-9]+.[0-9]+.[0-9]+$ ]] && \
-            echo "prerelease=false" >> "$GITHUB_OUTPUT" || \
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-      - name: setup dependencies
-        uses: ./.github/actions/spin-ci-dependencies
-        with:
-          rust: true
-          rust-cross: true
-
-      - name: Cargo Build
-        run: cross build --target ${{ matrix.config.target }} --release --features openssl/vendored
-        env:
-          CARGO_INCREMENTAL: 0
-          BUILD_SPIN_EXAMPLES: 0
-
-      - name: Install Cosign for signing Spin binary
-        uses: sigstore/cosign-installer@v3.4.0
-        with:
-          cosign-release: v2.2.3
-
-      - name: Sign the binary with GitHub OIDC token
-        shell: bash
-        run: |
-          cosign sign-blob \
-            --yes \
-            --output-certificate crt.pem \
-            --output-signature spin.sig \
-            target/${{ matrix.config.target }}/release/spin
-      - name: package release assets
-        shell: bash
-        run: |
-          mkdir _dist
-          cp crt.pem spin.sig README.md LICENSE target/${{ matrix.config.target }}/release/spin _dist/
-          cd _dist
-          tar czf \
-            spin-${{ env.RELEASE_VERSION }}-static-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz \
-            crt.pem spin.sig README.md LICENSE spin
-      - name: upload binary as GitHub artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: spin-static-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}
-          path: _dist/spin-${{ env.RELEASE_VERSION }}-static-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
-
-  dispatch-homebrew-tap:
-    name: Dispatch spin-release event to spinframework/homebrew-tap
-    needs: create-gh-release
-    runs-on: ubuntu-latest
-    if: github.repository_owner == 'spinframework' && startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Repository Dispatch
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.DEST_REPO_ACCESS_TOKEN }}
-          repository: spinframework/homebrew-tap
-          event-type: spin-release
-          client-payload: '{"version": "${{ github.ref_name }}"}'
-
-  docker:
-    runs-on: "ubuntu-22.04"
-    needs: [build-and-sign, build-spin-static]
-    # Only build/push Docker images if this is a v* tag or if this is main/canary
-    # i.e. skip for v* release branches
-    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
-    strategy:
-      matrix:
-        config:
-          - { dockerfile: "Dockerfile", tag-suffix: "" }
-          - { dockerfile: "distroless.Dockerfile", tag-suffix: "-distroless" }
-    steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup version info
-        id: version
+      - name: Install Rust toolchain
         run: |
-          if [[ "${{ startsWith(github.ref, 'refs/tags/v') }}" == "true" ]]; then
-            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          rustup update stable --no-self-update 
+          rustup default stable 
+          rustup target add wasm32-wasip1 wasm32-wasip2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config g++
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release -p spin-cli
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp target/release/spin release/spin-linux-amd64
+          chmod +x release/spin-linux-amd64
+          cd release && sha256sum * > checksums-sha256.txt
+
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
           else
-            echo "version=canary" >> $GITHUB_OUTPUT
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: download release assets
-        uses: actions/download-artifact@v4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          pattern: spin-*
-          merge-multiple: true
-
-      - name: extract binaries
-        shell: bash
-        run: |
-          if [[ "${{ matrix.config.tag-suffix }}" == "-distroless" ]]; then
-            static="-static"
-          fi
-          tar xvf spin-${{ steps.version.outputs.version }}${static}-linux-amd64.tar.gz
-          mv spin spin${static}-linux-amd64
-          tar xvf spin-${{ steps.version.outputs.version }}${static}-linux-aarch64.tar.gz
-          # Note: here we s/aarch64/arm64 to conform to Docker's TARGETARCH standards
-          mv spin spin${static}-linux-arm64
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log into registry ${{ env.REGISTRY }}
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      - name: Build and Push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: .github/${{ matrix.config.dockerfile }}
-          push: true
-          labels: ${{ steps.meta.outputs.labels }}
-          annotations: ${{ steps.meta.outputs.annotations }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}${{ matrix.config.tag-suffix }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Spin with WASI OTel - ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: |
+            release/spin-linux-amd64
+            release/checksums-sha256.txt
+          body: |
+            Custom build of Spin with WASI OpenTelemetry support.
+            
+            ## Installation
+            
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/spin-linux-amd64 \
+              -o /usr/local/bin/spin && chmod +x /usr/local/bin/spin
+            ```
