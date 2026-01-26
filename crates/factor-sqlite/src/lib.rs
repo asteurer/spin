@@ -83,11 +83,11 @@ impl Factor for SqliteFactor {
             .get(ctx.app_component().id())
             .cloned()
             .unwrap_or_default();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
         Ok(InstanceState::new(
             allowed_databases,
             ctx.app_state().connection_creators.clone(),
-            otel_context,
+            otel_state,
         ))
     }
 }

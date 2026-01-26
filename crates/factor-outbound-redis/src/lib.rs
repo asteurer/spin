@@ -42,14 +42,14 @@ impl Factor for OutboundRedisFactor {
         &self,
         mut ctx: PrepareContext<T, Self>,
     ) -> anyhow::Result<Self::InstanceBuilder> {
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
         let outbound_networking = ctx.instance_builder::<OutboundNetworkingFactor>()?;
 
         Ok(InstanceState {
             allowed_hosts: outbound_networking.allowed_hosts(),
             blocked_networks: outbound_networking.blocked_networks(),
             connections: spin_resource_table::Table::new(1024),
-            otel_context,
+            otel_state,
         })
     }
 }

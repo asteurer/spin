@@ -75,7 +75,7 @@ impl Factor for OutboundHttpFactor {
         let allowed_hosts = outbound_networking.allowed_hosts();
         let blocked_networks = outbound_networking.blocked_networks();
         let component_tls_configs = outbound_networking.component_tls_configs();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
         Ok(InstanceState {
             wasi_http_ctx: WasiHttpCtx::new(),
             allowed_hosts,
@@ -90,7 +90,7 @@ impl Factor for OutboundHttpFactor {
                 .app_state()
                 .concurrent_outbound_connections_semaphore
                 .clone(),
-            otel_context,
+            otel_state,
         })
     }
 }
@@ -118,7 +118,7 @@ pub struct InstanceState {
     /// A semaphore to limit the number of concurrent outbound connections.
     concurrent_outbound_connections_semaphore: Option<Arc<Semaphore>>,
     /// Manages access to the OtelFactor state.
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 impl InstanceState {

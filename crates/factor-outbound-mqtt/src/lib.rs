@@ -51,12 +51,12 @@ impl Factor for OutboundMqttFactor {
         let allowed_hosts = ctx
             .instance_builder::<OutboundNetworkingFactor>()?
             .allowed_hosts();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
 
         Ok(InstanceState::new(
             allowed_hosts,
             self.create_client.clone(),
-            otel_context,
+            otel_state,
         ))
     }
 }

@@ -96,11 +96,11 @@ impl Factor for KeyValueFactor {
             .get(ctx.app_component().id())
             .expect("component should be in component_stores")
             .clone();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
         Ok(InstanceBuilder {
             store_manager: app_state.store_manager.clone(),
             allowed_stores,
-            otel_context,
+            otel_state,
         })
     }
 }
@@ -180,7 +180,7 @@ pub struct InstanceBuilder {
     store_manager: Arc<AppStoreManager>,
     /// The allowed stores for this component instance.
     allowed_stores: HashSet<String>,
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 impl FactorInstanceBuilder for InstanceBuilder {
@@ -190,13 +190,13 @@ impl FactorInstanceBuilder for InstanceBuilder {
         let Self {
             store_manager,
             allowed_stores,
-            otel_context,
+            otel_state,
         } = self;
         Ok(KeyValueDispatch::new_with_capacity(
             allowed_stores,
             store_manager,
             u32::MAX,
-            Some(otel_context),
+            otel_state,
         ))
     }
 }

@@ -40,12 +40,12 @@ impl<C: Send + Sync + Client + 'static> Factor for OutboundMysqlFactor<C> {
         let allowed_hosts = ctx
             .instance_builder::<OutboundNetworkingFactor>()?
             .allowed_hosts();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
 
         Ok(InstanceState {
             allowed_hosts,
             connections: Default::default(),
-            otel_context,
+            otel_state,
         })
     }
 }
@@ -67,7 +67,7 @@ impl<C> OutboundMysqlFactor<C> {
 pub struct InstanceState<C> {
     allowed_hosts: OutboundAllowedHosts,
     connections: spin_resource_table::Table<C>,
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 impl<C: Send + 'static> SelfInstanceBuilder for InstanceState<C> {}

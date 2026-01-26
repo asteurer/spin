@@ -18,7 +18,7 @@ pub struct InstanceState {
     connections: spin_resource_table::Table<Box<dyn Connection>>,
     /// A map from database label to connection creators.
     connection_creators: HashMap<String, Arc<dyn ConnectionCreator>>,
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 impl InstanceState {
@@ -28,13 +28,13 @@ impl InstanceState {
     pub fn new(
         allowed_databases: Arc<HashSet<String>>,
         connection_creators: HashMap<String, Arc<dyn ConnectionCreator>>,
-        otel_context: OtelFactorState,
+        otel_state: OtelFactorState,
     ) -> Self {
         Self {
             allowed_databases,
             connections: spin_resource_table::Table::new(256),
             connection_creators,
-            otel_context,
+            otel_state,
         }
     }
 
@@ -158,7 +158,7 @@ impl v2::Host for InstanceState {
 impl v2::HostConnection for InstanceState {
     #[instrument(name = "spin_sqlite.open", skip(self), err(level = Level::INFO), fields(otel.kind = "client", db.system = "sqlite", sqlite.backend = Empty))]
     async fn open(&mut self, database: String) -> Result<Resource<v2::Connection>, v2::Error> {
-        self.otel_context.reparent_tracing_span();
+        self.otel_state.reparent_tracing_span();
         self.open_impl(database).await.map_err(to_v2_error)
     }
 
@@ -169,7 +169,7 @@ impl v2::HostConnection for InstanceState {
         query: String,
         parameters: Vec<v2::Value>,
     ) -> Result<v2::QueryResult, v2::Error> {
-        self.otel_context.reparent_tracing_span();
+        self.otel_state.reparent_tracing_span();
         self.execute_impl(
             connection,
             query,

@@ -67,11 +67,11 @@ impl Factor for VariablesFactor {
     ) -> anyhow::Result<InstanceState> {
         let component_id = ctx.app_component().id().to_string();
         let expression_resolver = ctx.app_state().expression_resolver.clone();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
         Ok(InstanceState {
             component_id,
             expression_resolver,
-            otel_context,
+            otel_state,
         })
     }
 }
@@ -97,7 +97,7 @@ impl AppState {
 pub struct InstanceState {
     component_id: String,
     expression_resolver: Arc<ExpressionResolver>,
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 impl InstanceState {

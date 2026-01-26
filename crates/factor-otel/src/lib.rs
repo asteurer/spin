@@ -151,6 +151,7 @@ pub(crate) struct State {
 
 /// Manages access to the OtelFactor state for the purpose of maintaining proper span
 /// parent/child relationships when WASI Otel spans are being created.
+#[derive(Default)]
 pub struct OtelFactorState {
     pub(crate) state: Option<Arc<RwLock<State>>>,
 }

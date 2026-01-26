@@ -50,26 +50,31 @@ pub struct KeyValueDispatch {
     manager: Arc<dyn StoreManager>,
     stores: Table<Arc<dyn Store>>,
     compare_and_swaps: Table<Arc<dyn Cas>>,
-    otel_context: Option<OtelFactorState>,
+    otel_state: OtelFactorState,
 }
 
 impl KeyValueDispatch {
     pub fn new(allowed_stores: HashSet<String>, manager: Arc<dyn StoreManager>) -> Self {
-        Self::new_with_capacity(allowed_stores, manager, DEFAULT_STORE_TABLE_CAPACITY, None)
+        Self::new_with_capacity(
+            allowed_stores,
+            manager,
+            DEFAULT_STORE_TABLE_CAPACITY,
+            Default::default(),
+        )
     }
 
     pub fn new_with_capacity(
         allowed_stores: HashSet<String>,
         manager: Arc<dyn StoreManager>,
         capacity: u32,
-        otel_context: Option<OtelFactorState>,
+        otel_state: OtelFactorState,
     ) -> Self {
         Self {
             allowed_stores,
             manager,
             stores: Table::new(capacity),
             compare_and_swaps: Table::new(capacity),
-            otel_context,
+            otel_state,
         }
     }
 
@@ -117,9 +122,7 @@ impl key_value::Host for KeyValueDispatch {}
 impl key_value::HostStore for KeyValueDispatch {
     #[instrument(name = "spin_key_value.open", skip(self), err, fields(otel.kind = "client", kv.backend=self.manager.summary(&name).unwrap_or("unknown".to_string())))]
     async fn open(&mut self, name: String) -> Result<Result<Resource<key_value::Store>, Error>> {
-        if let Some(otel_context) = self.otel_context.as_ref() {
-            otel_context.reparent_tracing_span();
-        }
+        self.otel_state.reparent_tracing_span();
         Ok(async {
             if self.allowed_stores.contains(&name) {
                 let store = self.manager.get(&name).await?;
@@ -142,9 +145,7 @@ impl key_value::HostStore for KeyValueDispatch {
         store: Resource<key_value::Store>,
         key: String,
     ) -> Result<Result<Option<Vec<u8>>, Error>> {
-        if let Some(otel_context) = self.otel_context.as_ref() {
-            otel_context.reparent_tracing_span();
-        }
+        self.otel_state.reparent_tracing_span();
         let store = self.get_store(store)?;
         Ok(store.get(&key).await.map_err(track_error_on_span))
     }
@@ -156,9 +157,7 @@ impl key_value::HostStore for KeyValueDispatch {
         key: String,
         value: Vec<u8>,
     ) -> Result<Result<(), Error>> {
-        if let Some(otel_context) = self.otel_context.as_ref() {
-            otel_context.reparent_tracing_span();
-        }
+        self.otel_state.reparent_tracing_span();
         let store = self.get_store(store)?;
         Ok(store.set(&key, &value).await.map_err(track_error_on_span))
     }
@@ -169,9 +168,7 @@ impl key_value::HostStore for KeyValueDispatch {
         store: Resource<key_value::Store>,
         key: String,
     ) -> Result<Result<(), Error>> {
-        if let Some(otel_context) = self.otel_context.as_ref() {
-            otel_context.reparent_tracing_span();
-        }
+        self.otel_state.reparent_tracing_span();
         let store = self.get_store(store)?;
         Ok(store.delete(&key).await.map_err(track_error_on_span))
     }
@@ -182,9 +179,7 @@ impl key_value::HostStore for KeyValueDispatch {
         store: Resource<key_value::Store>,
         key: String,
     ) -> Result<Result<bool, Error>> {
-        if let Some(otel_context) = self.otel_context.as_ref() {
-            otel_context.reparent_tracing_span();
-        }
+        self.otel_state.reparent_tracing_span();
         let store = self.get_store(store)?;
         Ok(store.exists(&key).await.map_err(track_error_on_span))
     }
@@ -194,9 +189,7 @@ impl key_value::HostStore for KeyValueDispatch {
         &mut self,
         store: Resource<key_value::Store>,
     ) -> Result<Result<Vec<String>, Error>> {
-        if let Some(otel_context) = self.otel_context.as_ref() {
-            otel_context.reparent_tracing_span();
-        }
+        self.otel_state.reparent_tracing_span();
         let store = self.get_store(store)?;
         Ok(store.get_keys().await.map_err(track_error_on_span))
     }

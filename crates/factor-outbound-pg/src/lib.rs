@@ -48,13 +48,13 @@ impl<CF: ClientFactory> Factor for OutboundPgFactor<CF> {
         let allowed_hosts = ctx
             .instance_builder::<OutboundNetworkingFactor>()?
             .allowed_hosts();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
 
         Ok(InstanceState {
             allowed_hosts,
             client_factory: ctx.app_state().clone(),
             connections: Default::default(),
-            otel_context,
+            otel_state,
         })
     }
 }
@@ -77,7 +77,7 @@ pub struct InstanceState<CF: ClientFactory> {
     allowed_hosts: OutboundAllowedHosts,
     client_factory: Arc<CF>,
     connections: spin_resource_table::Table<CF::Client>,
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 impl<CF: ClientFactory> SelfInstanceBuilder for InstanceState<CF> {}

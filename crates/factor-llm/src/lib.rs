@@ -83,12 +83,12 @@ impl Factor for LlmFactor {
             .cloned()
             .unwrap_or_default();
         let engine = ctx.app_state().engine.clone();
-        let otel_context = OtelFactorState::from_prepare_context(&mut ctx)?;
+        let otel_state = OtelFactorState::from_prepare_context(&mut ctx)?;
 
         Ok(InstanceState {
             engine,
             allowed_models,
-            otel_context,
+            otel_state,
         })
     }
 }
@@ -103,7 +103,7 @@ pub struct AppState {
 pub struct InstanceState {
     engine: Arc<Mutex<dyn LlmEngine>>,
     pub allowed_models: Arc<HashSet<String>>,
-    otel_context: OtelFactorState,
+    otel_state: OtelFactorState,
 }
 
 /// The runtime configuration for the LLM factor.
