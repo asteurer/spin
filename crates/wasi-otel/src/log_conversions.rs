@@ -193,7 +193,8 @@ impl<'de> Deserialize<'de> for OwnedAnyValue {
             where
                 E: de::Error,
             {
-                if let Some(stripped) = value.strip_prefix("{base64}:") {
+                if let Some(stripped) = value.strip_prefix("data:application/octet-stream;base64,")
+                {
                     // Handle byte array
                     base64::engine::general_purpose::STANDARD
                         .decode(stripped)
@@ -243,13 +244,13 @@ mod tests {
 
     #[test]
     fn deserialize_json_to_otel_log_any_value() {
-        let test_json = "{\"key1\": false, \"key2\": 123.456, \"key3\": 41, \"key4\": \"{base64}:SGVsbG8sIHdvcmxkIQ==\", \"key5\": \"This is a string\", \"key6\": [1, 2, 3], \"key7\": {\"nestedkey1\": \"Hello, from within!\"}}";
+        let test_json = "{\"key1\": false, \"key2\": 123.456, \"key3\": 41, \"key4\": \"data:application/octet-stream;base64,SGVsbG8sIHdvcmxkIQ==\", \"key5\": \"This is a string\", \"key6\": [1, 2, 3], \"key7\": {\"nestedkey1\": \"Hello, from within!\"}}";
         let expected: serde_json::Value = serde_json::json!({
             "key1": false,
             "key2": 123.456,
             "key3": 41,
             //'Hello, world!' encoded to base64
-            "key4": "{base64}:SGVsbG8sIHdvcmxkIQ==",
+            "key4": "data:application/octet-stream;base64,SGVsbG8sIHdvcmxkIQ==",
             "key5": "This is a string",
             "key6": [1, 2, 3],
             "key7": {
